@@ -4,43 +4,189 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>NextWealth</title>
+    
+    <!-- PWA Settings -->
     <link rel="manifest" href="manifest.json">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#f97316">
+
+    <!-- Libraries -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Firebase SDK Compat -->
+    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore-compat.js"></script>
+
     <style>
-        body { font-family: sans-serif; margin: 0; background: #f8fafc; }
-        .app-container { height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;700;900&display=swap');
+        body { font-family: 'Outfit', -apple-system, sans-serif; background-color: #f8fafc; margin: 0; overflow: hidden; }
+        .safe-top { padding-top: env(safe-area-inset-top); }
+        .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+        .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
+        .animate-in { animation: fadeIn 0.4s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
     </style>
 </head>
 <body>
     <div id="root"></div>
+
     <script type="text/babel">
+        // Firebase初期化（環境から自動注入される想定）
+        const firebaseConfig = JSON.parse(__firebase_config);
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'nextwealth-app';
+
+        const { useState, useEffect, useMemo } = React;
+
+        const CATEGORIES = [
+            { id: 'food', label: '食費', icon: '🍱' },
+            { id: 'transport', label: '交通費', icon: '🚃' },
+            { id: 'daily', label: '日用品', icon: '🛒' },
+            { id: 'invest', label: '投資', icon: '📈' },
+            { id: 'other', label: 'その他', icon: '✨' },
+        ];
+
         function App() {
+            const [user, setUser] = useState(null);
+            const [transactions, setTransactions] = useState([]);
+            const [activeTab, setActiveTab] = useState('calendar');
+            const [currentDate, setCurrentDate] = useState(new Date());
+            const [isInputOpen, setIsInputOpen] = useState(false);
+            const [amount, setAmount] = useState('');
+            const [selectedCat, setSelectedCat] = useState(CATEGORIES[0]);
+
+            useEffect(() => {
+                const initAuth = async () => {
+                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                        await auth.signInWithCustomToken(__initial_auth_token);
+                    } else {
+                        await auth.signInAnonymously();
+                    }
+                };
+                initAuth();
+                auth.onAuthStateChanged(setUser);
+            }, []);
+
+            useEffect(() => {
+                if (!user) return;
+                const unsubscribe = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('transactions')
+                    .onSnapshot(snap => {
+                        setTransactions(snap.docs.map(doc => ({id: doc.id, ...doc.data()})));
+                    });
+                return () => unsubscribe();
+            }, [user]);
+
+            const calendarDays = useMemo(() => {
+                const year = currentDate.getFullYear();
+                const month = currentDate.getMonth();
+                const daysInMonth = new Date(year, month + 1, 0).getDate();
+                const firstDay = new Date(year, month, 1).getDay();
+                const days = [];
+                for(let i=0; i<firstDay; i++) days.push(null);
+                for(let d=1; d<=daysInMonth; d++) {
+                    const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+                    const total = transactions.filter(t => t.date === dateStr).reduce((s, t) => s + (Number(t.amount)||0), 0);
+                    days.push({ day: d, total });
+                }
+                return days;
+            }, [currentDate, transactions]);
+
+            const handleSave = async () => {
+                if (!amount || !user) return;
+                await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('transactions').add({
+                    amount: parseInt(amount),
+                    category: selectedCat.id,
+                    date: currentDate.toISOString().split('T')[0],
+                    userId: user.uid
+                });
+                setAmount('');
+                setIsInputOpen(false);
+            };
+
             return (
-                <div className="app-container p-10">
-                    <div className="bg-orange-500 w-20 h-20 rounded-3xl flex items-center justify-center shadow-lg mb-6 mx-auto">
-                        <i data-lucide="wallet" className="text-white w-10 h-10"></i>
+                <div className="flex flex-col h-screen max-w-md mx-auto bg-slate-50 relative overflow-hidden shadow-2xl">
+                    <div className="bg-orange-500 safe-top pt-10 pb-6 px-6 text-white rounded-b-[2rem]">
+                        <h1 className="text-xl font-black italic uppercase">NextWealth</h1>
+                        <div className="mt-4 bg-white/10 p-4 rounded-xl backdrop-blur-md flex justify-around">
+                            <div className="text-center"><p className="text-[10px] opacity-60">支出合計</p><p className="text-xl font-black">¥{transactions.reduce((s,t)=>s+(Number(t.amount)||0),0).toLocaleString()}</p></div>
+                        </div>
                     </div>
-                    <h1 className="text-2xl font-black text-slate-800 mb-2">NEXTWEALTH</h1>
-                    <p className="text-slate-500 text-sm mb-8">Webアプリが正常に起動しました！</p>
-                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 text-left w-full max-w-xs">
-                        <p className="text-xs font-bold text-slate-400 uppercase mb-2">設定方法</p>
-                        <p className="text-sm text-slate-600 leading-relaxed">
-                            iPhone: Safariの共有ボタンから「ホーム画面に追加」<br/>
-                            Android: Chromeのメニューから「アプリをインストール」
-                        </p>
+
+                    <div className="flex-1 overflow-y-auto p-4 pb-32">
+                        {activeTab === 'calendar' && (
+                            <div className="animate-in space-y-4">
+                                <div className="flex justify-between items-center px-2">
+                                    <h2 className="font-black">{currentDate.getFullYear()}年 {currentDate.getMonth()+1}月</h2>
+                                    <div className="flex gap-2">
+                                        <button onClick={() => setCurrentDate(new Date(currentDate.setMonth(currentDate.getMonth()-1)))} className="p-1 bg-white rounded-lg shadow-sm border">←</button>
+                                        <button onClick={() => setCurrentDate(new Date(currentDate.setMonth(currentDate.getMonth()+1)))} className="p-1 bg-white rounded-lg shadow-sm border">→</button>
+                                    </div>
+                                </div>
+                                <div className="bg-white p-4 rounded-[2rem] shadow-sm border border-slate-100">
+                                    <div className="calendar-grid mb-2 text-[10px] font-bold text-slate-300 text-center">
+                                        {['日','月','火','水','木','金','土'].map(d=><div key={d}>{d}</div>)}
+                                    </div>
+                                    <div className="calendar-grid gap-y-1">
+                                        {calendarDays.map((d, i) => (
+                                            <div key={i} className="h-12 flex flex-col items-center justify-center">
+                                                <span className="text-xs font-bold text-slate-600">{d?.day}</span>
+                                                {d?.total > 0 && <span className="text-[8px] font-black text-orange-500">¥{d.total}</span>}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                        {activeTab === 'assets' && (
+                            <div className="animate-in space-y-4">
+                                <h2 className="text-xl font-black px-2">資産ハブ</h2>
+                                <div className="bg-white p-5 rounded-3xl shadow-sm border flex justify-between items-center">
+                                    <div className="flex items-center gap-3"><div className="bg-blue-500 p-2 rounded-lg text-white">💳</div><p className="font-bold">メイン銀行</p></div>
+                                    <p className="font-black">¥2,450,000</p>
+                                </div>
+                            </div>
+                        )}
                     </div>
+
+                    <div className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white/90 backdrop-blur-xl border-t safe-bottom px-8 pt-4 pb-6 flex justify-between items-center">
+                        <button onClick={()=>setActiveTab('calendar')} className={activeTab==='calendar'?'text-orange-500':'text-slate-300'}><i data-lucide="calendar"></i></button>
+                        <div className="relative -top-6">
+                            <button onClick={()=>setIsInputOpen(true)} className="w-14 h-14 bg-orange-500 rounded-2xl shadow-xl text-white flex items-center justify-center"><i data-lucide="plus" className="w-8 h-8"></i></button>
+                        </div>
+                        <button onClick={()=>setActiveTab('assets')} className={activeTab==='assets'?'text-orange-500':'text-slate-300'}><i data-lucide="wallet"></i></button>
+                    </div>
+
+                    {isInputOpen && (
+                        <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-md z-50 flex items-end">
+                            <div className="w-full bg-white rounded-t-[3rem] p-10 space-y-6 animate-in">
+                                <div className="flex justify-between items-center"><h2 className="text-xl font-black">入力</h2><button onClick={()=>setIsInputOpen(false)}>✕</button></div>
+                                <input type="number" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="0" className="w-full text-5xl font-black text-center bg-slate-50 py-6 rounded-3xl focus:ring-0 border-none" />
+                                <div className="grid grid-cols-3 gap-2">
+                                    {CATEGORIES.map(c=>(
+                                        <button key={c.id} onClick={()=>setSelectedCat(c)} className={`p-4 rounded-2xl flex flex-col items-center ${selectedCat.id===c.id?'bg-orange-500 text-white shadow-lg':'bg-slate-50 text-slate-400'}`}>
+                                            <span className="text-xl">{c.icon}</span><span className="text-[10px] font-bold">{c.label}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                                <button onClick={handleSave} className="w-full py-5 bg-slate-900 text-white rounded-2xl font-black">記録する</button>
+                            </div>
+                        </div>
+                    )}
                 </div>
             );
         }
+
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<App />);
-        setTimeout(() => lucide.createIcons(), 100);
+        setTimeout(() => lucide.createIcons(), 500);
     </script>
 </body>
 </html>
