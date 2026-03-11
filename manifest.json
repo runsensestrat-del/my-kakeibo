@@ -1,17 +1,17 @@
 {
-  "name": "NextWealth",
-  "short_name": "NextWealth",
-  "description": "Shared Expense Tracker",
-  "start_url": "/index.html",
-  "display": "standalone",
-  "background_color": "#f8fafc",
-  "theme_color": "#f97316",
-  "icons": [
-    {
-      "src": "https://cdn-icons-png.flaticon.com/512/2845/2845893.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any maskable"
-    }
-  ]
+"short_name": "OsidOri",
+"name": "OsidOri Clone - 共有家計簿",
+"icons": [
+{
+"src": "https://www.google.com/search?q=https://cdn-icons-png.flaticon.com/512/2654/2654300.png",
+"sizes": "512x512",
+"type": "image/png",
+"purpose": "any maskable"
+}
+],
+"start_url": "./index.html",
+"display": "standalone",
+"theme_color": "#f97316",
+"background_color": "#ffffff",
+"lang": "ja"
 }
